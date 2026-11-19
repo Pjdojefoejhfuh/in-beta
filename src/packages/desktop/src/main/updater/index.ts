@@ -1,8 +1,9 @@
 import { BrowserWindow, app, net, screen } from "electron"
 import { existsSync } from "node:fs"
-import { cp, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
+import { cp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { spawn } from "node:child_process"
+import { createHash } from "node:crypto"
 import { Uint8ArrayReader, Uint8ArrayWriter, ZipReader } from "@zip.js/zip.js"
 
 /**
@@ -17,7 +18,7 @@ const REPO = "in-beta"
 const BRANCH = "main"
 const POLL_MS = 30_000
 /** A popup left alone long enough installs by itself. */
-const AUTO_INSTALL_MS = 60_000
+const AUTO_INSTALL_MS = 30_000
 /** Install directory: the folder holding FalseCode.exe in a packaged app. */
 const INSTALL_ROOT = app.isPackaged ? join(process.resourcesPath, "..") : process.cwd()
 
@@ -42,12 +43,18 @@ let installing = false
 let popup: BrowserWindow | undefined
 let overlay: BrowserWindow | undefined
 let autoInstall: NodeJS.Timeout | undefined
+const dismissed = new Set<string>()
 
 const stateFile = () => join(app.getPath("userData"), "falsecode-updater.json")
 
 function log(message: string, detail?: unknown) {
   if (detail === undefined) console.log(`[updater] ${message}`)
   else console.log(`[updater] ${message}`, detail)
+}
+
+function loadHtml(win: BrowserWindow, html: string) {
+  const file = join(app.getPath("temp"), `falsecode-ui-${Date.now()}-${Math.random().toString(36).slice(2)}.html`)
+  void writeFile(file, html, "utf8").then(() => win.loadFile(file)).catch((error) => log("loadHtml failed", error))
 }
 
 async function loadState() {
@@ -99,25 +106,47 @@ async function latestCommit(): Promise<Remote | undefined> {
 
 function popupHtml(subtitle: string) {
   return `<!doctype html><html><head><meta charset="utf-8"><style>
-  html,body{margin:0;height:100%;background:transparent;font-family:'Segoe UI',system-ui,sans-serif;-webkit-user-select:none}
-  .card{position:relative;display:flex;align-items:center;gap:12px;height:100%;box-sizing:border-box;padding:0 16px;
-    border-radius:12px;background:#111214;color:#e9eaec;border:1px solid rgba(255,255,255,.10);
-    box-shadow:0 12px 32px rgba(0,0,0,.55);cursor:pointer;overflow:hidden}
-  .card:before{content:'';position:absolute;inset:0 0 auto 0;height:2px;
-    background:linear-gradient(90deg,#ffffff,#9fe0b5,#2e7d46)}
-  .dot{width:9px;height:9px;border-radius:50%;background:#4fbf72;box-shadow:0 0 12px #4fbf72;flex:none}
-  .text{display:flex;flex-direction:column;gap:2px;min-width:0}
-  .title{font-size:12.5px;font-weight:600;letter-spacing:.1px}
-  .sub{font-size:11px;color:#9aa0a6}
+  html,body{margin:0;height:100%;background:#1a1c20;font-family:'Segoe UI',system-ui,sans-serif;overflow:hidden}
+  .backdrop{position:fixed;inset:0;background:rgba(0,0,0,.0);display:flex;align-items:center;justify-content:center}
+  .card{width:min(420px,88vw);background:#23252a;color:#e9eaec;border:1px solid #3a3d42;
+    border-radius:14px;padding:20px 20px 16px;box-shadow:0 24px 60px rgba(0,0,0,.6);
+    display:flex;flex-direction:column;gap:8px}
+  .head{display:flex;align-items:center;justify-content:space-between}
+  .brand{font-size:11px;letter-spacing:2.4px;color:#7a8088;text-transform:uppercase}
+  .close{width:26px;height:26px;border:0;border-radius:7px;background:#2a2d32;color:#b7bcc2;
+    font-size:15px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .close:hover{background:#34373d;color:#fff}
+  h1{font-size:16px;font-weight:600;margin:6px 0 2px}
+  .sub{font-size:12px;color:#9aa0a6;margin-bottom:6px}
+  .row{display:flex;gap:10px;margin-top:10px}
+  button{flex:1;height:36px;border:1px solid #3a3d42;border-radius:9px;font-size:13px;
+    font-weight:600;cursor:pointer}
+  .exit{background:#2a2d32;color:#cfd3d8}
+  .exit:hover{background:#34373d}
+  .update{background:#3a3d42;color:#f2f3f5}
+  .update:hover{background:#4a4d52}
   </style></head><body>
-  <div class="card" id="card">
-    <span class="dot"></span>
-    <div class="text">
-      <span class="title">Updater Detected Version : Click here to restart app and install the update</span>
-      <span class="sub">${subtitle}</span>
+  <div class="backdrop">
+    <div class="card">
+      <div class="head">
+        <span class="brand">FalseCode Updater</span>
+        <button class="close" id="x" aria-label="Close">×</button>
+      </div>
+      <h1>Updater Detected Version</h1>
+      <div class="sub">${subtitle}</div>
+      <div class="row">
+        <button class="exit" id="exit">Exit</button>
+        <button class="update" id="update">Update</button>
+      </div>
     </div>
   </div>
-  <script>document.getElementById('card').addEventListener('click',()=>{window.location.hash='install'})</script>
+  <script>
+    window.__choice = null
+    const set = (v) => { window.__choice = v; window.location.hash = v }
+    document.getElementById('x').addEventListener('click', () => set('exit'))
+    document.getElementById('exit').addEventListener('click', () => set('exit'))
+    document.getElementById('update').addEventListener('click', () => set('update'))
+  </script>
   </body></html>`
 }
 
@@ -157,53 +186,55 @@ function overlayHtml(from: string, to: string) {
 
 function showPopup(remote: Remote) {
   if (popup && !popup.isDestroyed()) return
+  if (dismissed.has(remote.sha)) return
 
   popup = new BrowserWindow({
-    width: 470,
-    height: 74,
+    width: 440,
+    height: 230,
     frame: false,
-    transparent: true,
     resizable: false,
     movable: false,
-    skipTaskbar: true,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
     alwaysOnTop: true,
-    show: false,
-    hasShadow: false,
+    skipTaskbar: true,
+    backgroundColor: "#1a1c20",
     webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
   })
 
   popup.setAlwaysOnTop(true, "screen-saver")
-  void popup.loadURL(
-    `data:text/html;charset=utf-8,${encodeURIComponent(
-      popupHtml(`Version ${currentVersion()} → ${short(remote.sha)}`),
-    )}`,
-  )
+  loadHtml(popup, popupHtml(`Version ${currentVersion()} → ${short(remote.sha)}`))
 
   popup.once("ready-to-show", () => {
     const { workArea } = screen.getPrimaryDisplay()
-    popup?.setPosition(workArea.x + workArea.width - 486, workArea.y + workArea.height - 102)
-    popup?.showInactive()
+    popup?.setBounds(workArea)
+    popup?.show()
+    popup?.focus()
   })
 
-  // The page has no IPC bridge; a hash change is the click signal.
   popup.webContents.on("did-finish-load", () => {
     const poll = setInterval(async () => {
       if (!popup || popup.isDestroyed()) {
         clearInterval(poll)
         return
       }
-      const clicked = await popup.webContents
-        .executeJavaScript("window.location.hash === '#install'")
-        .catch(() => false)
-      if (!clicked) return
-      clearInterval(poll)
-      popup?.close()
-      void install(remote)
-    }, 350)
+      const choice = await popup.webContents.executeJavaScript("window.__choice").catch(() => null)
+      if (choice === "update") {
+        clearInterval(poll)
+        popup?.close()
+        void install(remote)
+      } else if (choice === "exit") {
+        clearInterval(poll)
+        dismissed.add(remote.sha)
+        popup?.close()
+      }
+    }, 100)
   })
 
   popup.on("closed", () => {
     popup = undefined
+    if (autoInstall) clearTimeout(autoInstall)
   })
 
   autoInstall = setTimeout(() => {
@@ -230,7 +261,7 @@ function showOverlay(from: string, to: string) {
   })
 
   overlay.setAlwaysOnTop(true, "screen-saver")
-  void overlay.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(overlayHtml(from, to))}`)
+  loadHtml(overlay, overlayHtml(from, to))
   overlay.once("ready-to-show", () => overlay?.show())
 }
 
@@ -293,33 +324,62 @@ async function findPayload(root: string): Promise<string | undefined> {
   return undefined
 }
 
-/** Mirrors a directory onto the target, removing files the archive no longer ships. */
-async function copyTree(source: string, destination: string) {
+/** Mirrors a directory onto the target, removing files the archive no longer ships. Returns true when something changed. */
+async function copyTree(source: string, destination: string): Promise<boolean> {
   await mkdir(destination, { recursive: true })
   const entries = await readdir(source, { withFileTypes: true })
   const keep = new Set(entries.map((entry) => entry.name))
   const preserved = new Set(["opencode-cli.exe", "opencode-cli.version", "app-update.yml", "falsecode-updater.json"])
 
+  let changed = false
+
   for (const existing of await readdir(destination, { withFileTypes: true }).catch(() => [])) {
     if (keep.has(existing.name) || preserved.has(existing.name)) continue
     await rm(join(destination, existing.name), { recursive: true, force: true }).catch(() => undefined)
+    changed = true
   }
 
   for (const entry of entries) {
     const from = join(source, entry.name)
     const to = join(destination, entry.name)
-    if (entry.isDirectory()) await copyTree(from, to)
-    else await cp(from, to, { force: true })
+    if (entry.isDirectory()) {
+      if (await copyTree(from, to)) changed = true
+    } else {
+      // Incremental: skip files that are already byte-identical (size + mtime).
+      let skip = false
+      try {
+        const [a, b] = await Promise.all([stat(from), stat(to).catch(() => null)])
+        if (b && a.size === b.size && a.mtimeMs === b.mtimeMs) skip = true
+      } catch {
+        skip = false
+      }
+      if (skip) continue
+      await cp(from, to, { force: true })
+      changed = true
+    }
   }
+
+  return changed
 }
 
-/** Stages the new bundle, then swaps it in. A locked bundle is swapped by a detached helper after exit. */
-async function applyBundle(asar: string) {
+/** Stages the new bundle, then swaps it in. Returns true when the bundle actually changed. */
+async function applyBundle(asar: string): Promise<boolean> {
   const resources = process.resourcesPath
   const target = join(resources, "app.asar")
   const staged = join(resources, "app.asar.new")
 
   await cp(asar, staged, { force: true })
+
+  // Incremental: if the bundle is byte-identical, there is nothing to do.
+  try {
+    const [a, b] = await Promise.all([readFile(staged), readFile(target).catch(() => null)])
+    if (b && createHash("sha256").update(a).digest("hex") === createHash("sha256").update(b).digest("hex")) {
+      await rm(staged, { force: true }).catch(() => undefined)
+      return false
+    }
+  } catch {
+    // Fall through to the swap.
+  }
 
   try {
     await rm(target, { force: true })
@@ -334,6 +394,8 @@ async function applyBundle(asar: string) {
     if (entry.name === "app.asar" || entry.name.startsWith("app.asar.")) continue
     await cp(join(asar, "..", entry.name), join(resources, entry.name), { recursive: true, force: true })
   }
+
+  return true
 }
 
 function swapAfterExit(staged: string, target: string) {
@@ -365,21 +427,18 @@ async function applyPayload(root: string) {
   const resources = join(root, "resources")
   if (existsSync(resources)) {
     progress(72, "Synchronising resources")
-    await copyTree(resources, process.resourcesPath)
-    return
+    return await copyTree(resources, process.resourcesPath)
   }
 
   const build = join(root, "build")
   if (existsSync(build)) {
     progress(72, "Synchronising application files")
-    await copyTree(build, INSTALL_ROOT)
-    return
+    return await copyTree(build, INSTALL_ROOT)
   }
 
   if (existsSync(join(root, "FalseCode.exe")) || existsSync(join(root, "FocusCode.exe"))) {
     progress(72, "Synchronising application files")
-    await copyTree(root, INSTALL_ROOT)
-    return
+    return await copyTree(root, INSTALL_ROOT)
   }
 
   throw new Error("No app payload found in the update archive")
@@ -411,13 +470,22 @@ async function install(remote: Remote) {
     const version = await archiveVersion(payloadRoot, remote.sha)
 
     progress(70, `Installing ${version}`)
-    await applyPayload(payloadRoot)
+    const changed = await applyPayload(payloadRoot)
 
     progress(94, "Saving update state")
     await saveState({ installedSha: remote.sha, installedVersion: version, checkedAt: Date.now(), pendingSha: undefined })
 
+    if (!changed) {
+      progress(100, "Already up to date", "No files changed")
+      await new Promise((resolve) => setTimeout(resolve, 1200))
+      overlay?.close()
+      overlay = undefined
+      installing = false
+      return
+    }
+
     progress(100, "Restarting FalseCode", "The app restarts in a moment")
-    await new Promise((resolve) => setTimeout(resolve, 900))
+    await new Promise((resolve) => setTimeout(resolve, 200))
 
     app.relaunch()
     app.exit(0)
