@@ -11,6 +11,7 @@ import { BackgroundService } from "./service/background-service"
 import { DesktopCli } from "./service/desktop-cli"
 import { marks } from "./lifecycle/marks"
 import { UsageAutoReset } from "./usage-reset/auto-reset"
+import { startGithubUpdater } from "./updater"
 
 // Everything above has been loaded and evaluated by now; the layers start below.
 marks.bundle = Date.now()
@@ -38,6 +39,7 @@ const runIpc = Effect.fn("Desktop.runIpc")(function* () {
   const logging = yield* DesktopLogging.Service
   yield* logging.startCrashReporter
   yield* installContextMenu
+  yield* Effect.sync(() => startGithubUpdater())
   yield* Effect.callback<void>((resume) => {
     const quit = () => resume(Effect.void)
     app.once("will-quit", quit)

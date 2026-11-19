@@ -56,6 +56,8 @@ async function loadState() {
   } catch {
     state = {}
   }
+  // A previous session may have left a pending commit uninstalled; re-evaluate it on this launch.
+  state.pendingSha = undefined
 }
 
 async function saveState(next: Partial<State>) {
@@ -360,9 +362,27 @@ async function applyPayload(root: string) {
     return
   }
 
+  const resources = join(root, "resources")
+  if (existsSync(resources)) {
+    progress(72, "Synchronising resources")
+    await copyTree(resources, process.resourcesPath)
+    return
+  }
+
   const build = join(root, "build")
-  progress(72, "Synchronising application files")
-  await copyTree(existsSync(build) ? build : root, INSTALL_ROOT)
+  if (existsSync(build)) {
+    progress(72, "Synchronising application files")
+    await copyTree(build, INSTALL_ROOT)
+    return
+  }
+
+  if (existsSync(join(root, "FalseCode.exe")) || existsSync(join(root, "FocusCode.exe"))) {
+    progress(72, "Synchronising application files")
+    await copyTree(root, INSTALL_ROOT)
+    return
+  }
+
+  throw new Error("No app payload found in the update archive")
 }
 
 async function install(remote: Remote) {
@@ -421,12 +441,15 @@ async function check() {
     await saveState({ checkedAt: Date.now() })
     if (!remote) return
 
-    // First check baselines the repository without touching a working install.
-    if (!state.installedSha) {
-      await saveState({ installedSha: remote.sha, installedVersion: app.getVersion() })
-      log("baseline", { sha: short(remote.sha) })
-      return
-    }
+  // First sight of a commit means "not yet installed": offer it instead of baselining.
+  if (!state.installedSha) {
+    if (!remote) return
+    if (state.pendingSha === remote.sha) return
+    await saveState({ pendingSha: remote.sha })
+    log("update available (first install)", { to: short(remote.sha) })
+    showPopup(remote)
+    return
+  }
 
     if (remote.sha === state.installedSha || remote.sha === state.pendingSha) return
 
