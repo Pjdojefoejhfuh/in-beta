@@ -9,10 +9,10 @@ export const CHANNEL: Channel = raw === "local" || raw === "dev" || raw === "bet
 export const VERSION = app.isPackaged ? app.getVersion() : (process.env.OPENCODE_VERSION ?? app.getVersion())
 
 const appNames = {
-  local: "FalseCode Dev",
-  dev: "FalseCode Dev",
-  beta: "FalseCode Beta",
-  prod: "FalseCode",
+  local: "FocusCode Dev",
+  dev: "FocusCode Dev",
+  beta: "FocusCode Beta",
+  prod: "FocusCode",
 } satisfies Record<Channel, string>
 
 const appIDs = {
@@ -23,6 +23,6 @@ const appIDs = {
 } satisfies Record<Channel, string>
 
 // Local renderer/server mode keeps the dev application identity.
-export const APP_NAME = app.isPackaged ? appNames[CHANNEL] : "FalseCode Dev"
+export const APP_NAME = app.isPackaged ? appNames[CHANNEL] : "FocusCode Dev"
 
 export const APP_ID = app.isPackaged ? appIDs[CHANNEL] : "ai.focuscode.desktop.dev"

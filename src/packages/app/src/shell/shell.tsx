@@ -26,6 +26,7 @@ import {
 import { createPanelMotion, guardClosingFocus, panelOpacity, setPanelResizing } from "@/shell/panel-motion"
 import { createSidebarPeek } from "@/shell/sidebar-peek"
 import { UsageResetButton } from "@/shell/usage-reset/button"
+import { FxLayer } from "@/fx/layer"
 import { windowDragEnabled } from "@/session/header/drag-area"
 
 type SidebarPose = { closed: number; peek: number | undefined }
@@ -208,6 +209,7 @@ export default function Layout(props: ParentProps) {
 
   return (
     <div
+      data-fx-shell
       class="relative bg-v2-background-bg-deep flex-1 min-h-0 min-w-0 flex flex-col select-none [&_input]:select-text [&_textarea]:select-text [&_[contenteditable]]:select-text"
       style={{
         // Mobile panels only need clearance for their outer border.
@@ -323,6 +325,7 @@ export default function Layout(props: ParentProps) {
       <div data-slot="composer-touch-bar-mount" class="order-last shrink-0" />
       <PluginSlot at="window.bottom" input={{}} />
       <UsageResetButton />
+      <FxLayer />
       <ToastRegion />
       <UploadToastHost />
     </div>

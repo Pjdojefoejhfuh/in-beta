@@ -1,0 +1,401 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   FocusCode FX layer
+   Custom cursor, motion trail, click feedback, hover/press animation, gradient
+   background, bottom dock and the ASCII title. Everything is opt-in through
+   `html[data-fx-*]` so a single toggle turns a whole effect off.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  --fx-accent: var(--v2-icon-icon-accent, #4c8dff);
+  --fx-accent-soft: color-mix(in oklab, var(--fx-accent) 24%, transparent);
+  --fx-accent-line: color-mix(in oklab, var(--fx-accent) 42%, transparent);
+  --fx-ring-size: 30px;
+  --fx-ring-scale: 1;
+}
+
+/* ── Gradient wash ─────────────────────────────────────────────────────────── */
+
+html[data-fx-gradient="on"] [data-fx-shell] {
+  background-image:
+    radial-gradient(1100px 560px at 8% -12%, color-mix(in oklab, var(--fx-accent) 20%, transparent), transparent 68%),
+    radial-gradient(900px 520px at 102% -4%, color-mix(in oklab, #8b5cf6 18%, transparent), transparent 66%),
+    radial-gradient(1000px 700px at 50% 118%, color-mix(in oklab, #06b6d4 16%, transparent), transparent 70%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+}
+
+html[data-fx-gradient="on"] [data-slot="home-panel"],
+html[data-fx-gradient="on"] [data-component="new-session"],
+html[data-fx-gradient="on"] [data-slot="session-chat-panel"] {
+  background-image: linear-gradient(
+    158deg,
+    color-mix(in oklab, var(--fx-accent) 9%, transparent) 0%,
+    transparent 46%,
+    color-mix(in oklab, #8b5cf6 7%, transparent) 100%
+  );
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html[data-fx-gradient="on"] [data-fx-shell] {
+    animation: fx-gradient-drift 26s ease-in-out infinite alternate;
+  }
+
+  @keyframes fx-gradient-drift {
+    from {
+      background-position:
+        0% 0%,
+        100% 0%,
+        50% 100%;
+    }
+    to {
+      background-position:
+        6% 4%,
+        94% 6%,
+        46% 96%;
+    }
+  }
+}
+
+/* ── Custom cursor ─────────────────────────────────────────────────────────── */
+
+html[data-fx-cursor="on"],
+html[data-fx-cursor="on"] *,
+html[data-fx-cursor="on"] *::before,
+html[data-fx-cursor="on"] *::after {
+  cursor: none !important;
+}
+
+#fx-cursor-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  pointer-events: none;
+  contain: strict;
+}
+
+#fx-trail {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+#fx-cursor-ring {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: var(--fx-ring-size);
+  height: var(--fx-ring-size);
+  border: 1.5px solid var(--fx-accent-line);
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--fx-accent) 7%, transparent);
+  box-shadow: 0 0 14px color-mix(in oklab, var(--fx-accent) 28%, transparent);
+  will-change: transform;
+  transform: translate3d(-100px, -100px, 0) translate(-50%, -50%) scale(var(--fx-ring-scale));
+}
+
+#fx-cursor-ring.is-hot {
+  --fx-ring-scale: 1.85;
+  border-color: var(--fx-accent);
+  background: color-mix(in oklab, var(--fx-accent) 14%, transparent);
+}
+
+#fx-cursor-ring.is-down {
+  --fx-ring-scale: 0.72;
+  border-color: var(--fx-accent);
+}
+
+#fx-cursor-dot {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background: var(--fx-accent);
+  box-shadow: 0 0 10px var(--fx-accent);
+  will-change: transform;
+  transform: translate3d(-100px, -100px, 0) translate(-50%, -50%);
+}
+
+#fx-cursor-layer[data-hidden="true"] {
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+/* ── Click feedback ────────────────────────────────────────────────────────── */
+
+.fx-ripple {
+  position: fixed;
+  z-index: 2147482999;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-radius: 9999px;
+  border: 1.5px solid var(--fx-accent);
+  pointer-events: none;
+  animation: fx-ripple-out 620ms cubic-bezier(0.16, 0.84, 0.44, 1) forwards;
+}
+
+@keyframes fx-ripple-out {
+  from {
+    transform: scale(0.35);
+    opacity: 0.95;
+  }
+  to {
+    transform: scale(7);
+    opacity: 0;
+  }
+}
+
+.fx-press {
+  animation: fx-press 320ms cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+
+@keyframes fx-press {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(0.93);
+  }
+  70% {
+    transform: scale(1.025);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* ── Hover animation ───────────────────────────────────────────────────────── */
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  button:not(:disabled):not([data-no-fx]),
+  [role="button"]:not([data-no-fx]),
+  a:not([data-no-fx]) {
+    transition:
+      transform 160ms cubic-bezier(0.2, 0.9, 0.2, 1),
+      filter 160ms ease,
+      box-shadow 160ms ease;
+  }
+
+  button:not(:disabled):not([data-no-fx]):hover,
+  [role="button"]:not([data-no-fx]):hover,
+  a:not([data-no-fx]):hover {
+    transform: translateY(-1px);
+    filter: brightness(1.09);
+  }
+
+  button:not(:disabled):not([data-no-fx]):active,
+  [role="button"]:not([data-no-fx]):active {
+    transform: translateY(0) scale(0.97);
+    filter: brightness(0.97);
+  }
+}
+
+:root[data-motion="reduce"] .fx-press,
+:root[data-motion="reduce"] .fx-ripple {
+  animation: none;
+}
+
+/* ── Bottom dock ───────────────────────────────────────────────────────────── */
+
+.fx-dock {
+  position: fixed;
+  left: 50%;
+  bottom: 12px;
+  z-index: 2147482000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  transform: translateX(-50%);
+  font-family: var(--font-family-text, system-ui);
+  font-size: 12px;
+  user-select: none;
+}
+
+.fx-dock-panel {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 6px;
+  border-radius: 14px;
+  border: 1px solid var(--fx-accent-line);
+  background: color-mix(in oklab, var(--v2-background-bg-base, #161616) 82%, transparent);
+  box-shadow:
+    0 14px 38px rgb(0 0 0 / 0.42),
+    0 0 0 1px color-mix(in oklab, var(--fx-accent) 10%, transparent) inset;
+  backdrop-filter: blur(16px) saturate(1.3);
+  max-height: 160px;
+  overflow: hidden;
+  transform-origin: bottom center;
+  transition:
+    max-height 340ms cubic-bezier(0.2, 0.9, 0.2, 1),
+    opacity 220ms ease,
+    transform 340ms cubic-bezier(0.2, 0.9, 0.2, 1),
+    padding 340ms cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+
+.fx-dock[data-open="false"] .fx-dock-panel {
+  max-height: 0;
+  padding-block: 0;
+  opacity: 0;
+  transform: translateY(14px) scale(0.96);
+  pointer-events: none;
+}
+
+.fx-dock-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 20px;
+  border-radius: 9999px;
+  border: 1px solid var(--fx-accent-line);
+  background: color-mix(in oklab, var(--v2-background-bg-base, #161616) 78%, transparent);
+  color: var(--v2-text-text-muted, #808080);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.35);
+}
+
+.fx-dock-handle:hover {
+  color: var(--fx-accent);
+  border-color: var(--fx-accent);
+}
+
+.fx-dock-handle svg {
+  width: 14px;
+  height: 14px;
+  transition: transform 320ms cubic-bezier(0.2, 0.9, 0.2, 1);
+  transform: rotate(180deg);
+}
+
+.fx-dock[data-open="true"] .fx-dock-handle svg {
+  transform: rotate(0deg);
+}
+
+.fx-dock-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--v2-text-text-muted, #9a9a9a);
+  white-space: nowrap;
+  font-size: 11.5px;
+  letter-spacing: 0.01em;
+}
+
+.fx-dock-item:hover {
+  color: var(--v2-text-text-base, #eee);
+  background: color-mix(in oklab, var(--fx-accent) 13%, transparent);
+  border-color: var(--fx-accent-line);
+}
+
+.fx-dock-item[data-on="true"] {
+  color: var(--fx-accent);
+  border-color: var(--fx-accent-line);
+  background: color-mix(in oklab, var(--fx-accent) 16%, transparent);
+  box-shadow: 0 0 12px color-mix(in oklab, var(--fx-accent) 26%, transparent);
+}
+
+.fx-dock-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: color-mix(in oklab, var(--fx-accent) 22%, transparent);
+}
+
+.fx-dock-led {
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background: currentColor;
+  opacity: 0.5;
+}
+
+.fx-dock-item[data-on="true"] .fx-dock-led {
+  opacity: 1;
+  box-shadow: 0 0 8px currentColor;
+}
+
+/* ── ASCII title ───────────────────────────────────────────────────────────── */
+
+[data-component="fx-ascii-title"] {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: clamp(1px, 0.45cqw, 7px);
+  width: 100%;
+  container-type: inline-size;
+  color: var(--v2-icon-icon-base, currentColor);
+  filter: drop-shadow(0 0 26px color-mix(in oklab, var(--fx-accent) 22%, transparent));
+  user-select: none;
+}
+
+[data-component="fx-ascii-title"] pre {
+  margin: 0;
+  padding: 0;
+  font-family: "JetBrainsMono Nerd Font Mono", ui-monospace, "Cascadia Mono", monospace;
+  font-size: min(1.78cqw, 26px);
+  line-height: 0.94;
+  letter-spacing: 0;
+  white-space: pre;
+  background: linear-gradient(
+    172deg,
+    color-mix(in oklab, var(--v2-text-text-base, #fff) 96%, transparent) 0%,
+    color-mix(in oklab, var(--v2-text-text-base, #fff) 58%, transparent) 62%,
+    color-mix(in oklab, var(--v2-text-text-base, #fff) 18%, transparent) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+[data-component="fx-ascii-title"] pre:hover {
+  background-image: linear-gradient(
+    172deg,
+    var(--fx-accent) 0%,
+    color-mix(in oklab, var(--fx-accent) 55%, var(--v2-text-text-base, #fff)) 58%,
+    color-mix(in oklab, var(--fx-accent) 12%, transparent) 100%
+  );
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  [data-component="fx-ascii-title"] pre {
+    animation: fx-ascii-breathe 6.5s ease-in-out infinite alternate;
+  }
+
+  [data-component="fx-ascii-title"] pre:nth-child(2n) {
+    animation-delay: -1.1s;
+  }
+
+  [data-component="fx-ascii-title"] pre:nth-child(3n) {
+    animation-delay: -2.4s;
+  }
+
+  @keyframes fx-ascii-breathe {
+    from {
+      opacity: 0.72;
+      transform: translateY(0);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(-1px);
+    }
+  }
+}
+
+@media (max-width: 720px) {
+  [data-component="fx-ascii-title"] {
+    gap: 0;
+  }
+
+  [data-component="fx-ascii-title"] pre {
+    font-size: min(2.05cqw, 18px);
+  }
+}
